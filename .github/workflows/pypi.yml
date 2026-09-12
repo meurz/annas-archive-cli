@@ -16,6 +16,7 @@ jobs:
       url: https://pypi.org/p/annas-archive-cli
     permissions:
       contents: read
+      attestations: read
     steps:
       - name: Download tested Python distributions from the release
         env:

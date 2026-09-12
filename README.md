@@ -12,18 +12,21 @@ The command is `anna`. This is an independent, unofficial project.
 
 ## Run in one command
 
-With [uv](https://docs.astral.sh/uv/), run the prebuilt wheel from the release:
+With [uv](https://docs.astral.sh/uv/), run the pinned preview:
+
+```sh
+uvx --from annas-archive-cli==0.2.0rc1 anna --help
+```
+
+No repository clone or manual virtual environment is needed. uv needs a compatible
+Python runtime and can download one when permitted. To install permanently, use
+`uv tool install annas-archive-cli==0.2.0rc1`.
+
+The identical wheel is also available directly from GitHub Releases:
 
 ```sh
 uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/annas_archive_cli-0.2.0rc1-py3-none-any.whl anna --help
 ```
-
-No repository clone or manual virtual environment is needed. uv needs a compatible
-Python runtime and can download one when permitted. To install permanently, replace
-`uvx --from ... anna --help` with `uv tool install <the-wheel-URL>`.
-PyPI publication is a separate release step; use the GitHub wheel until the package
-has been published. After PyPI publication, the equivalent pinned command is
-`uvx --from annas-archive-cli==0.2.0rc1 anna --help`.
 
 ### Without Python
 
