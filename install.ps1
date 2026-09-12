@@ -49,7 +49,7 @@ try {
     Copy-Item $executable $staged
     $destination = Join-Path $InstallDir 'anna.exe'
     if (Test-Path $destination) {
-        [IO.File]::Replace($staged, $destination, $null)
+        [IO.File]::Replace($staged, $destination, [System.Management.Automation.Language.NullString]::Value)
     } else {
         [IO.File]::Move($staged, $destination)
     }
