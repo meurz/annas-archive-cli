@@ -21,7 +21,9 @@ the minimum glibc baseline of their build host, not universal Linux compatibilit
 
 ## PyPI publishing
 
-The `Publish to PyPI` workflow is manually dispatched with an existing release tag.
+The `Publish to PyPI` workflow starts after a successful tagged `Release` workflow
+from this repository. It ignores failed builds, build-only runs and fork runs.
+It can also be manually dispatched with an existing release tag to retry an upload.
 It downloads and verifies the provenance of the tested wheel/sdist, then publishes the
 same files using the `PYPI_API_TOKEN` secret in the protected `pypi` environment.
 The token is never stored in the repository. The environment only permits deployment

@@ -1,5 +1,8 @@
 name: Publish to PyPI
 on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -10,6 +13,12 @@ permissions:
   contents: read
 jobs:
   publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -22,7 +31,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
         run: |
           gh release download "$RELEASE_TAG" --dir dist --pattern '*.whl' --pattern 'annas_archive_cli-*.tar.gz'
           for artifact in dist/*; do
