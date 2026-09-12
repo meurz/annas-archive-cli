@@ -3,12 +3,20 @@ import http.cookiejar
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
-from anna.errors import AnnaError
+from anna.errors import (
+    AnnaError,
+    FileExistsError,
+    HTTPStatusError,
+    IntegrityError,
+    InvalidInputError,
+    RateLimitError,
+)
 from anna.parsing import Book, document, parse_info, parse_search, record_id, text
 
 DEFAULT_BASE_URL = "https://annas-archive.gl"
@@ -31,13 +39,15 @@ def http_url(value: str) -> str:
     except ValueError:
         valid = False
     if not valid:
-        raise AnnaError("地址必须是有效 HTTP(S) URL，且不能在 URL 中包含用户名或密码。")
+        raise InvalidInputError("Use a valid HTTP(S) URL without embedded credentials.")
     return value
 
 
 def safe_filename(name: str) -> str:
     name = unquote(name).replace("\\", "/").split("/")[-1]
     name = re.sub(r'[\x00-\x1f\x7f<>:"|?*]', "_", name).strip(" .")
+    if re.fullmatch(r"CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]", name.split(".")[0], re.I):
+        name = "_" + name
     # Bound UTF-8 bytes to leave room for the temporary filename suffix.
     while len(name.encode("utf-8")) > 180:
         name = name[:-1]
@@ -58,13 +68,16 @@ def response_filename(response: httpx.Response) -> str:
 def check_status(response: httpx.Response) -> None:
     if response.status_code == 429:
         retry = response.headers.get("retry-after", "")
-        suffix = f"（Retry-After: {retry}）" if retry else ""
-        raise AnnaError(f"站点限流，请稍后重试{suffix}。")
+        suffix = f" (Retry-After: {retry})" if retry else ""
+        raise RateLimitError(f"Rate limited; retry later{suffix}.")
     if response.status_code >= 400:
         if response.status_code in {401, 403, 503}:
             # Inspect a bounded body; challenge responses may use an error status.
             document(response.text[:1_000_000])
-        raise AnnaError(f"服务器返回 HTTP {response.status_code}，请检查镜像、记录或访问权限。")
+        raise HTTPStatusError(
+            f"Server returned HTTP {response.status_code}; "
+            "check the mirror, record or access permissions."
+        )
 
 
 class Client:
@@ -79,7 +92,7 @@ class Client:
         self.base_url = http_url(base_url).rstrip("/")
         parsed = urlsplit(self.base_url)
         if parsed.path or parsed.query or parsed.fragment:
-            raise AnnaError("--base-url 只接受站点根地址，例如 https://annas-archive.gl。")
+            raise AnnaError("--base-url requires an origin URL, e.g. https://annas-archive.gl.")
         jar = http.cookiejar.MozillaCookieJar()
         if cookies:
             try:
@@ -92,7 +105,9 @@ class Client:
                         cookie.discard = True
                 jar.clear_expired_cookies()
             except (OSError, http.cookiejar.LoadError) as exc:
-                raise AnnaError("无法读取 Cookie 文件，请使用 Netscape cookies.txt 格式。") from exc
+                raise AnnaError(
+                    "Cannot read Cookies; use the Netscape cookies.txt format."
+                ) from exc
         self.http = httpx.Client(
             timeout=timeout,
             follow_redirects=True,
@@ -115,7 +130,7 @@ class Client:
 
     def search(self, query: str, **filters) -> list[Book]:
         if not query.strip():
-            raise AnnaError("搜索词不能为空。")
+            raise AnnaError("Search query cannot be empty.")
         params = {"q": query, "display": "", **{k: v for k, v in filters.items() if v}}
         response = self.page("/search", params)
         return parse_search(response.text, str(response.url))
@@ -131,6 +146,7 @@ class Client:
         output: Path | None = None,
         directory: Path = Path("."),
         expected_md5: str | None = None,
+        progress: Callable[[int], None] | None = None,
     ) -> dict:
         if expected_md5:
             expected_md5 = record_id(expected_md5)
@@ -147,7 +163,9 @@ class Client:
                         )
                     )
                 if response.status_code != 200:
-                    raise AnnaError(f"下载需要完整文件，服务器返回 HTTP {response.status_code}。")
+                    raise AnnaError(
+                        f"A complete file is required; server returned HTTP {response.status_code}."
+                    )
                 chunks = response.iter_bytes(chunk_size=65536)
                 first = next(chunks, b"")
                 content_type = response.headers.get("content-type", "").lower()
@@ -160,7 +178,9 @@ class Client:
                     for chunk in chunks:
                         body.extend(chunk)
                         if len(body) > 2_000_000:
-                            raise AnnaError("下载入口返回过大的 HTML 页面，未保存为文件。")
+                            raise AnnaError(
+                                "Download returned an oversized HTML page; no file was saved."
+                            )
                     soup = document(body.decode("utf-8", errors="replace"))
                     # Only follow explicit file download controls, never arbitrary links/JS.
                     candidates = soup.select("a[download][href], a#download[href]")
@@ -173,28 +193,32 @@ class Client:
                         ]
                     target = next(
                         (
-                            urljoin(str(response.url), a["href"])
+                            urljoin(str(response.url), str(a["href"]))
                             for a in candidates
-                            if urljoin(str(response.url), a["href"]) != str(response.url)
+                            if urljoin(str(response.url), str(a["href"])) != str(response.url)
                         ),
                         None,
                     )
                     if not target:
                         raise AnnaError(
-                            "下载入口返回网页，可能需要浏览器验证、登录或等待。"
-                            "请在浏览器取得最终文件 URL 后执行 anna download URL；未保存网页。"
+                            "Download returned a web page requiring verification, "
+                            "login or waiting. "
+                            "Obtain the final file URL in your browser and run anna download URL; "
+                            "no page was saved."
                         )
                     url = target
                     continue
                 if ("json" in content_type or prefix.startswith((b'{"', b"{\n"))) or (
                     "xml" in content_type or prefix.startswith(b"<?xml")
                 ):
-                    raise AnnaError("下载入口返回 JSON/XML 响应，未保存为电子书。")
+                    raise AnnaError("Download returned JSON/XML; no ebook was saved.")
                 if not first:
-                    raise AnnaError("服务器返回空文件，下载已取消。")
+                    raise AnnaError("Server returned an empty file; download cancelled.")
                 destination = output or directory / response_filename(response)
                 if destination.exists() or destination.is_symlink():
-                    raise AnnaError(f"文件已存在，不会覆盖：{destination}")
+                    raise FileExistsError(
+                        f"File already exists; refusing to overwrite: {destination}"
+                    )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 fd, temporary = tempfile.mkstemp(
                     prefix=".anna-", suffix=".part", dir=destination.parent
@@ -206,27 +230,33 @@ class Client:
                         stream.write(first)
                         digest.update(first)
                         size += len(first)
+                        if progress:
+                            progress(len(first))
                         for chunk in chunks:
                             stream.write(chunk)
                             digest.update(chunk)
                             size += len(chunk)
+                            if progress:
+                                progress(len(chunk))
                         stream.flush()
                         os.fsync(stream.fileno())
                     declared = response.headers.get("content-length")
                     if declared and not response.headers.get("content-encoding"):
                         if not declared.isdigit():
-                            raise AnnaError("服务器返回无效 Content-Length，下载已取消。")
+                            raise AnnaError("Invalid Content-Length; download cancelled.")
                         if int(declared) != size:
-                            raise AnnaError("下载大小与 Content-Length 不符，未保留损坏文件。")
+                            raise IntegrityError(
+                                "Download size does not match Content-Length; damaged file removed."
+                            )
                     checksum = digest.hexdigest()
                     if expected_md5 and checksum != expected_md5:
-                        raise AnnaError("文件 MD5 校验失败，未保留损坏文件。")
+                        raise IntegrityError("File MD5 verification failed; damaged file removed.")
                     # Atomic publication with no overwrite, including concurrent invocations.
                     os.link(temporary, destination)
                 finally:
                     Path(temporary).unlink(missing_ok=True)
                 return {"path": str(destination.resolve()), "bytes": size, "md5": checksum}
-        raise AnnaError("下载入口跳转层数过多，请提供最终文件 URL。")
+        raise AnnaError("Too many download landing pages; provide the final file URL.")
 
     @staticmethod
     def _read_page(response: httpx.Response) -> bytes:
@@ -234,5 +264,5 @@ class Client:
         for chunk in response.iter_bytes(chunk_size=65536):
             body.extend(chunk)
             if len(body) > 2_000_000:
-                raise AnnaError(f"服务器返回 HTTP {response.status_code}。")
+                raise AnnaError(f"Server returned HTTP {response.status_code}.")
         return bytes(body)

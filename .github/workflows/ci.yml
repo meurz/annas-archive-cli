@@ -1,0 +1,96 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan committed history for secrets
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git --redact --no-banner .
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: true
+          version: '0.11.3'
+      - run: uv sync --locked --python 3.12
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen ty check src/anna
+      - name: Audit runtime dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project -o requirements-audit.txt
+          uv run --frozen pip-audit -r requirements-audit.txt --disable-pip
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.11'}
+          - {os: ubuntu-24.04, python: '3.14'}
+          - {os: macos-15, python: '3.14'}
+          - {os: windows-2022, python: '3.14'}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: true
+          version: '0.11.3'
+      - run: uv sync --locked --python ${{ matrix.python }}
+      - run: uv run --frozen pytest -q
+      - run: uv build
+      - name: Test installed wheel outside the checkout
+        shell: bash
+        run: |
+          uv venv .artifact-venv --python '${{ matrix.python }}'
+          if [ '${{ runner.os }}' = Windows ]; then
+            python_path=.artifact-venv/Scripts/python.exe
+            anna_path=.artifact-venv/Scripts/anna.exe
+          else
+            python_path=.artifact-venv/bin/python
+            anna_path=.artifact-venv/bin/anna
+          fi
+          uv pip install --python "$python_path" dist/*.whl
+          uv run --frozen python scripts/smoke_test.py --executable "$anna_path"
+  package:
+    name: Packaging
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: true
+          version: '0.11.3'
+      - run: uv sync --locked --python 3.12 --group bundle
+      - run: uv build
+      - run: uv run --frozen twine check dist/*
+      - run: uv run --frozen --group bundle python scripts/build_binary.py --target linux-x86_64
+      - name: Test POSIX installer with the built archive
+        run: uv run --frozen python scripts/test_installers.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-preview
+          path: release/*
+          retention-days: 7

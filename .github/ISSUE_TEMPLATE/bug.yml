@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible CLI or packaging problem.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version and platform
+      description: Include anna --version, OS, architecture and installation method.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and expected behavior
+      description: Include a minimal command with all private values removed.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Paste the error code/output. Never include Cookies or signed/private URLs.
+    validations:
+      required: true

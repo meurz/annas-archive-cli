@@ -1,4 +1,6 @@
 import json
+import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -17,15 +19,21 @@ class ErrorGroup(click.Group):
             return super().invoke(ctx)
         except (AnnaError, httpx.HTTPError, OSError) as exc:
             if isinstance(exc, httpx.HTTPError):
-                message = f"网络请求失败（{type(exc).__name__}），请检查网络、代理或 --base-url。"
+                code = "network_error"
+                message = (
+                    f"Network request failed ({type(exc).__name__}); "
+                    "check your network, proxy or --base-url."
+                )
             elif isinstance(exc, OSError):
-                message = f"文件操作失败：{exc.strerror or type(exc).__name__}。"
+                code = "filesystem_error"
+                message = f"File operation failed: {exc.strerror or type(exc).__name__}."
             else:
+                code = exc.code
                 message = str(exc)
             if (ctx.obj or {}).get("json"):
                 click.echo(
                     json.dumps(
-                        {"error": {"type": type(exc).__name__, "message": message}},
+                        {"error": {"code": code, "type": type(exc).__name__, "message": message}},
                         ensure_ascii=False,
                     )
                 )
@@ -39,19 +47,19 @@ class ErrorGroup(click.Group):
     envvar="ANNA_BASE_URL",
     default=DEFAULT_BASE_URL,
     show_default=True,
-    help="镜像根地址。",
+    help="Mirror origin URL.",
 )
 @click.option(
     "--cookies",
     envvar="ANNA_COOKIES",
     type=click.Path(path_type=Path, exists=True),
-    help="浏览器导出的 Netscape Cookie 文件。",
+    help="Netscape Cookie file exported from your browser.",
 )
 @click.option(
     "--user-agent",
     envvar="ANNA_USER_AGENT",
     default=DEFAULT_USER_AGENT,
-    help="使用 Cookie 时可设为浏览器的 User-Agent。",
+    help="Match your browser User-Agent when using its Cookies.",
 )
 @click.option(
     "--timeout",
@@ -59,13 +67,15 @@ class ErrorGroup(click.Group):
     type=click.FloatRange(min=0, min_open=True),
     default=30,
     show_default=True,
-    help="网络超时秒数。",
+    help="Network timeout in seconds.",
 )
-@click.option("--json", "json_output", is_flag=True, help="输出 JSON。子命令后也可使用。")
+@click.option(
+    "--json", "json_output", is_flag=True, help="Output JSON. Also accepted after a subcommand."
+)
 @click.version_option(__version__)
 @click.pass_context
 def main(ctx, base_url, cookies, user_agent, timeout, json_output):
-    """搜索 Anna’s Archive、查看书籍、获取链接和下载文件。"""
+    """Search Anna's Archive, inspect records and download files."""
     ctx.ensure_object(dict)
     ctx.obj.update(
         json=json_output,
@@ -76,7 +86,7 @@ def main(ctx, base_url, cookies, user_agent, timeout, json_output):
 
 
 def json_option(function):
-    return click.option("--json", "json_output", is_flag=True, help="输出 JSON。")(function)
+    return click.option("--json", "json_output", is_flag=True, help="Output JSON.")(function)
 
 
 def prepare(ctx, json_output):
@@ -88,11 +98,33 @@ def emit(value):
     click.echo(json.dumps(value, ensure_ascii=False, indent=2))
 
 
+class DownloadProgress:
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self.bytes = 0
+        self.last_update = 0.0
+
+    def __call__(self, amount: int) -> None:
+        self.bytes += amount
+        now = time.monotonic()
+        if self.enabled and now - self.last_update > 0.2:
+            click.echo(f"\rDownloaded {self.bytes / 1048576:.1f} MiB", err=True, nl=False)
+            self.last_update = now
+
+    def close(self) -> None:
+        if self.enabled and self.bytes:
+            click.echo(err=True)
+
+
 @main.command()
 @click.argument("query", nargs=-1, required=True)
-@click.option("--lang", multiple=True, help="语言代码，可重复：zh、en、ja。")
-@click.option("--ext", multiple=True, help="文件格式，可重复：epub、pdf。")
-@click.option("--content", multiple=True, help="内容类型，如 book_nonfiction、book_fiction。")
+@click.option(
+    "--lang", multiple=True, help="Language code; repeat for multiple languages (en, zh, ja)."
+)
+@click.option("--ext", multiple=True, help="File format; repeat for multiple formats (epub, pdf).")
+@click.option(
+    "--content", multiple=True, help="Content type, such as book_nonfiction or book_fiction."
+)
 @click.option(
     "--sort",
     type=click.Choice(
@@ -107,12 +139,12 @@ def emit(value):
     type=click.IntRange(min=1),
     default=20,
     show_default=True,
-    help="本页最多输出多少条，不会自动翻页。",
+    help="Maximum records from this page; does not fetch additional pages.",
 )
 @json_option
 @click.pass_context
 def search(ctx, query, lang, ext, content, sort, page, limit, json_output):
-    """按标题、作者、ISBN 或关键词搜索。"""
+    """Search by title, author, ISBN or keywords."""
     with prepare(ctx, json_output) as client:
         books = client.search(
             " ".join(query),
@@ -125,11 +157,11 @@ def search(ctx, query, lang, ext, content, sort, page, limit, json_output):
     if ctx.obj["json"]:
         emit([asdict(book) for book in books])
     elif not books:
-        click.echo("没有找到匹配书籍。")
+        click.echo("No matching books found.")
     else:
         for i, book in enumerate(books, 1):
             click.echo(f"{i}. {book.title}")
-            click.echo(f"   {book.author or '作者未知'} | {book.metadata}")
+            click.echo(f"   {book.author or 'Unknown author'} | {book.metadata}")
             click.echo(f"   {book.url}")
 
 
@@ -138,24 +170,24 @@ def search(ctx, query, lang, ext, content, sort, page, limit, json_output):
 @json_option
 @click.pass_context
 def info(ctx, record, json_output):
-    """查看书籍详情，接受 MD5 或详情 URL。"""
+    """Inspect a record by MD5 or record URL."""
     with prepare(ctx, json_output) as client:
         book = client.info(record)
     if ctx.obj["json"]:
         emit(asdict(book))
     else:
         for label, value in [
-            ("书名", book.title),
-            ("作者", book.author),
-            ("出版", book.publisher),
-            ("文件", book.metadata),
+            ("Title", book.title),
+            ("Author", book.author),
+            ("Publisher", book.publisher),
+            ("File", book.metadata),
             ("MD5", book.md5),
-            ("链接", book.url),
-            ("简介", book.description),
+            ("URL", book.url),
+            ("Description", book.description),
         ]:
             if value:
-                click.echo(f"{label}：{value}")
-        click.echo(f"下载入口：{len(book.links)} 个（anna links {book.md5}）")
+                click.echo(f"{label}: {value}")
+        click.echo(f"Download sources: {len(book.links)} (anna links {book.md5})")
 
 
 @main.command()
@@ -163,7 +195,7 @@ def info(ctx, record, json_output):
 @json_option
 @click.pass_context
 def links(ctx, record, json_output):
-    """列出详情页中的下载入口（入口可能仍需验证或登录）。"""
+    """List download sources; some require verification or login."""
     with prepare(ctx, json_output) as client:
         book = client.info(record)
     if ctx.obj["json"]:
@@ -172,25 +204,30 @@ def links(ctx, record, json_output):
         for i, link in enumerate(book.links, 1):
             click.echo(f"{i}. [{link.kind}] {link.label}\n   {link.url}")
         if not book.links:
-            click.echo("该记录没有可用下载入口。")
+            click.echo("No download sources are available for this record.")
 
 
 @main.command()
 @click.argument("target")
-@click.option("--source", type=click.IntRange(min=1), help="anna links 显示的入口编号。")
-@click.option("-o", "--output", type=click.Path(path_type=Path), help="保存文件路径。不会覆盖。")
+@click.option("--source", type=click.IntRange(min=1), help="Source index from anna links.")
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file path. Never overwrites existing files.",
+)
 @click.option(
     "-d",
     "--directory",
     type=click.Path(path_type=Path),
     default=".",
-    help="未指定 -o 时的保存目录。",
+    help="Destination directory when -o is not specified.",
 )
-@click.option("--md5", "expected_md5", help="下载直接 URL 时额外校验文件 MD5。")
+@click.option("--md5", "expected_md5", help="Verify the MD5 of a direct URL download.")
 @json_option
 @click.pass_context
 def download(ctx, target, source, output, directory, expected_md5, json_output):
-    """下载 MD5/详情链接对应的文件，或指定的 HTTP(S) 文件 URL。"""
+    """Download a record by MD5/URL, or a direct HTTP(S) file URL."""
     with prepare(ctx, json_output) as client:
         try:
             md5 = record_id(target)
@@ -198,11 +235,13 @@ def download(ctx, target, source, output, directory, expected_md5, json_output):
             md5 = None
         if md5:
             if expected_md5 and record_id(expected_md5) != md5:
-                raise AnnaError("--md5 与书籍记录 MD5 不一致。")
+                raise AnnaError("--md5 does not match the record MD5.")
             book = client.info(md5)
             if source:
                 if source > len(book.links):
-                    raise AnnaError(f"该记录只有 {len(book.links)} 个入口，--source 超出范围。")
+                    raise AnnaError(
+                        f"Record has {len(book.links)} sources; --source is out of range."
+                    )
                 link = book.links[source - 1]
             else:
                 link = next(
@@ -214,26 +253,40 @@ def download(ctx, target, source, output, directory, expected_md5, json_output):
                     None,
                 )
             if not link:
-                raise AnnaError("没有普通 HTTP 下载入口；请运行 anna links 检查可用来源。")
+                raise AnnaError(
+                    "No regular HTTP download source; use anna links to inspect available sources."
+                )
             target, expected_md5 = link.url, md5
         elif source:
-            raise AnnaError("--source 仅用于 MD5 或书籍详情链接。")
-        result = client.download(target, output, directory, expected_md5)
+            raise AnnaError("--source requires an MD5 or record URL.")
+        progress = DownloadProgress(not ctx.obj["json"] and sys.stderr.isatty())
+        try:
+            result = client.download(
+                target,
+                output,
+                directory,
+                expected_md5,
+                progress=progress,
+            )
+        finally:
+            progress.close()
     if ctx.obj["json"]:
         emit(result)
     else:
-        click.echo(f"已保存：{result['path']}\n大小：{result['bytes']} 字节\nMD5：{result['md5']}")
+        click.echo(f"Saved: {result['path']}\nSize: {result['bytes']} bytes\nMD5: {result['md5']}")
 
 
 @main.command()
 @json_option
 @click.pass_context
 def doctor(ctx, json_output):
-    """检查当前镜像能否返回可解析的搜索结果。"""
+    """Check whether the mirror returns recognizable search results."""
     with prepare(ctx, json_output) as client:
         books = client.search("Pride and Prejudice", page=1)
         result = {"base_url": client.base_url, "ok": True, "results": len(books)}
     if ctx.obj["json"]:
         emit(result)
     else:
-        click.echo(f"镜像可访问并成功解析：{result['base_url']}（{result['results']} 条）")
+        click.echo(
+            f"Mirror parsed successfully: {result['base_url']} ({result['results']} records)"
+        )
