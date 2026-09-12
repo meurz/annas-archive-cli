@@ -19,7 +19,7 @@ CHALLENGE = '<title>DDoS-Guard</title><script src="/ddos-guard/check.js"></scrip
 
 
 def fixture(name):
-    return (FIXTURES / f"{name}.html").read_text()
+    return (FIXTURES / f"{name}.html").read_text(encoding="utf-8")
 
 
 def client(handler):
@@ -145,7 +145,7 @@ def test_hash_failure_and_no_overwrite(tmp_path):
             api.download(BASE + "/file", output=output, expected_md5=MD5)
         assert list(tmp_path.iterdir()) == []
         output.write_bytes(b"original")
-        with pytest.raises(AnnaError, match="已存在"):
+        with pytest.raises(AnnaError, match="already exists"):
             api.download(BASE + "/file", output=output)
         assert output.read_bytes() == b"original"
 

@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
+from typing import TypedDict
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Comment, Tag
@@ -42,11 +43,11 @@ def record_id(value: str) -> str:
     try:
         parsed = urlsplit(value)
     except ValueError as exc:
-        raise AnnaError("详情链接格式无效。") from exc
+        raise AnnaError("Invalid record URL.") from exc
     match = MD5_PATH.fullmatch(parsed.path)
     if match and (not parsed.scheme or parsed.scheme in {"http", "https"}):
         return match[1].lower()
-    raise AnnaError("请输入 32 位 MD5 或 /md5/<MD5> 书籍详情链接。")
+    raise AnnaError("Provide a 32-character MD5 or a /md5/<MD5> record URL.")
 
 
 def text(node: Tag | None) -> str:
@@ -69,12 +70,14 @@ def document(html: str) -> BeautifulSoup:
     )
     if challenge:
         raise ChallengeError(
-            "站点要求浏览器验证。请在浏览器打开该镜像完成验证，导出 Netscape Cookie "
-            "文件后使用 --cookies；Cookie 可能绑定 IP 和 User-Agent，"
-            "也可用 --base-url 切换镜像。CLI 不执行验证脚本。"
+            "Browser verification required. Open this mirror in your browser, "
+            "complete verification, "
+            "then export Netscape Cookies and use --cookies. "
+            "Cookies may be bound to IP/User-Agent. "
+            "You can also change --base-url. This CLI does not execute verification scripts."
         )
     if any(s in html.lower() for s in ("this domain may be for sale", "forsale.min.js")):
-        raise ParseError("该域名是停放页，请用 --base-url 指定已确认的 Anna’s Archive 镜像。")
+        raise ParseError("Parked domain; set --base-url to a verified Anna's Archive mirror.")
     # The site progressively reveals result cards stored inside HTML comments.
     for container in soup.select(".js-scroll-hidden"):
         for comment in list(container.find_all(string=lambda x: isinstance(x, Comment))):
@@ -83,7 +86,14 @@ def document(html: str) -> BeautifulSoup:
     return soup
 
 
-def metadata_fields(value: str) -> dict[str, str]:
+class Metadata(TypedDict):
+    metadata: str
+    language: str
+    format: str
+    size: str
+
+
+def metadata_fields(value: str) -> Metadata:
     parts = [p.strip() for p in value.split(",")]
     language = re.search(r"\[([a-z]{2,3}(?:[-_][\w]+)?)\]", value, re.I)
     extension = next(
@@ -107,7 +117,7 @@ def parse_search(html: str, base_url: str) -> list[Book]:
     soup = document(html)
     books: dict[str, Book] = {}
     for anchor in soup.select('a[href*="/md5/"]'):
-        match = MD5_PATH.fullmatch(urlsplit(anchor.get("href", "")).path)
+        match = MD5_PATH.fullmatch(urlsplit(str(anchor.get("href", ""))).path)
         if not match:
             continue
         md5 = match[1].lower()
@@ -126,7 +136,7 @@ def parse_search(html: str, base_url: str) -> list[Book]:
             url=urljoin(base_url, f"/md5/{md5}"),
             author=text(author),
             publisher=text(publisher) if publisher != author else "",
-            cover_url=urljoin(base_url, cover["src"]) if cover else "",
+            cover_url=urljoin(base_url, str(cover["src"])) if cover else "",
             **metadata_fields(text(meta)),
         )
     if not books:
@@ -142,7 +152,10 @@ def parse_search(html: str, base_url: str) -> list[Book]:
                 "找不到",
             )
         ):
-            raise ParseError("未识别到搜索结果结构（可能是验证页或站点改版），未将其当作空结果。")
+            raise ParseError(
+                "Unrecognized search layout (verification page or site change); "
+                "not treated as empty results."
+            )
     return list(books.values())
 
 
@@ -150,7 +163,7 @@ def extract_links(soup: BeautifulSoup, base_url: str) -> list[Link]:
     links = []
     seen = set()
     for anchor in soup.select("a.js-download-link[href]"):
-        url = urljoin(base_url, anchor["href"])
+        url = urljoin(base_url, str(anchor["href"]))
         parsed = urlsplit(url)
         if parsed.scheme not in {"https", "http", "magnet", "ipfs"} or url in seen:
             continue
@@ -169,19 +182,21 @@ def parse_info(html: str, base_url: str, md5: str) -> Book:
     soup = document(html)
     title = soup.select_one(".text-3xl")
     if title is None:
-        raise ParseError("未识别到书籍详情结构（记录不存在、验证页或站点改版）。")
+        raise ParseError(
+            "Unrecognized record layout (missing record, verification page or site change)."
+        )
     meta = title.find_previous_sibling("div")
     publisher = title.find_next_sibling("div")
     author = publisher.find_next_sibling("div") if publisher else None
     cover = soup.select_one(".js-cover-background")
-    cover = cover.parent.select_one("img[src]") if cover else None
+    cover = cover.parent.select_one("img[src]") if cover and cover.parent else None
     return Book(
         md5=md5,
         title=text(title),
         url=urljoin(base_url, f"/md5/{md5}"),
         author=text(author),
         publisher=text(publisher),
-        cover_url=urljoin(base_url, cover["src"]) if cover else "",
+        cover_url=urljoin(base_url, str(cover["src"])) if cover else "",
         description=text(soup.select_one(".js-md5-top-box-description")),
         links=extract_links(soup, base_url),
         **metadata_fields(text(meta)),

@@ -1,100 +1,176 @@
-# Anna’s Archive CLI
+# Anna's Archive CLI
 
-终端中搜索书籍、查看详情、列出下载入口，以及下载文件。命令名 `anna`，Python 3.11+。
+[![CI](https://github.com/meurz/annas-archive-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/meurz/annas-archive-cli/actions/workflows/ci.yml)
 
-## 安装
+Search Anna's Archive, inspect book records and download files from your terminal.
+The command is `anna`. This is an independent, unofficial project.
 
-```bash
-uv tool install .
-anna --help
+> **Preview:** parsing and packaged downloads are tested against local fixtures.
+> A real public-domain EPUB download has been verified, but successful end-to-end
+> access to Anna's Archive has not: tested mirrors required browser verification.
+> The CLI does not execute JavaScript challenges, CAPTCHAs or waiting queues.
+
+## Run in one command
+
+With [uv](https://docs.astral.sh/uv/), run the prebuilt wheel from the release:
+
+```sh
+uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/annas_archive_cli-0.2.0rc1-py3-none-any.whl anna --help
 ```
 
-也可使用 `pipx install .`，或开发环境 `uv sync --group dev` 后运行 `uv run anna`。
+No repository clone or manual virtual environment is needed. uv needs a compatible
+Python runtime and can download one when permitted. To install permanently, replace
+`uvx --from ... anna --help` with `uv tool install <the-wheel-URL>`.
+PyPI publication is a separate release step; use the GitHub wheel until the package
+has been published. After PyPI publication, the equivalent pinned command is
+`uvx --from annas-archive-cli==0.2.0rc1 anna --help`.
 
-## 使用
+### Without Python
 
-```bash
-anna search 三体 --lang zh --ext epub
-anna search "Jane Austen" --ext epub --ext pdf --sort smallest --limit 5
-anna search "Pride and Prejudice" --page 2 --json
+Standalone archives are available from [GitHub Releases](https://github.com/meurz/annas-archive-cli/releases).
+They bundle the runtime. Install the preview on Linux or macOS:
+
+```sh
+curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/install.sh | ANNA_VERSION=v0.2.0rc1 sh
 ```
 
-搜索输出包含书籍详情 URL。将它或其中的 32 位 MD5 传给以下命令：
+Windows PowerShell:
 
-```bash
-anna info "$BOOK_URL"
-anna links "$BOOK_URL" --json
-anna download "$BOOK_URL" --source 2 -o ./book.epub
-anna download "$FILE_URL" -d ./downloads
-anna download "$FILE_URL" --md5 "$EXPECTED_MD5" --json
+```powershell
+$env:ANNA_VERSION='v0.2.0rc1'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/install.ps1).Content))
 ```
 
-`BOOK_URL` 是 `anna search` 返回的详情链接，`FILE_URL` 是最终 HTTP(S) 文件地址。
-`--source` 对应 `anna links` 中从 1 开始的编号；省略时选择第一个非 fast 的 HTTP 入口。
-`--limit` 限制当前页输出条数，`--page` 请求指定页，不自动批量翻页。
+Alternatively, download and inspect the installer before running it, or extract the
+archive yourself and run `anna --help` / `anna.exe --help`. Installers verify the
+archive's SHA-256 before replacing an existing executable. Release build attestations
+can be verified with `gh attestation verify <archive> --repo meurz/annas-archive-cli`.
+The executables are not platform-signed or notarized; OS security prompts may apply.
 
-下载会跟随 HTTP 重定向和明确的文件下载按钮，流式写入同目录临时文件，完成后原子发布。
-从 MD5/详情 URL 发起时强制校验 MD5；直接 URL 可通过 `--md5` 指定校验值。
-默认不覆盖已有文件，失败清理临时文件；拒绝 HTML 验证页、JSON/XML 错误响应、空文件及长度不符的文件。
-不提供断点续传，也不自动执行网页 JavaScript、验证码或等待队列。
+| Target | Build/test baseline |
+| --- | --- |
+| Linux x86_64 | Ubuntu 22.04, glibc 2.35+ |
+| Linux arm64 | Ubuntu 24.04, glibc 2.39+ |
+| macOS arm64 / x86_64 | macOS 15 |
+| Windows x86_64 | Windows Server 2022 runner; desktop Windows 11 not separately verified |
 
-## 镜像、Cookie 与网络
+These targets are published only after native artifact tests pass. Alpine/musl and
+Windows arm64 are not supported by the standalone builds. The Python package requires
+Python 3.11+; CI tests 3.11 and 3.14.
 
-```bash
+### Upgrade and uninstall
+
+Run the installer again with the desired `ANNA_VERSION`. Without that variable it
+selects the latest **stable** release, which may not exist during the preview phase.
+Use `ANNA_INSTALL_DIR` to override the destination. The default is `~/.local/bin` on
+Linux/macOS and `%LOCALAPPDATA%\Programs\anna` on Windows. Installers explain how to
+add this directory to PATH; they do not edit your shell/profile or request admin rights.
+
+Remove the installed executable to uninstall. For a uv installation, use
+`uv tool uninstall annas-archive-cli`; after PyPI publication, upgrade with
+`uv tool upgrade annas-archive-cli`. For GitHub wheel installs, install the new version's
+wheel URL with `uv tool install --reinstall <URL>`. Downloaded books are never removed.
+
+## Usage
+
+```sh
+anna search "Jane Austen" --lang en --ext epub --limit 5
+anna search "三体" --lang zh --ext epub --json
+anna search "Pride and Prejudice" --sort smallest --page 2
+anna info <MD5-or-record-URL>
+anna links <MD5-or-record-URL> --json
+anna download <MD5-or-record-URL> --source 2 -o book.epub
+anna download <file-URL> -d downloads --md5 <expected-MD5>
+anna doctor --json
+```
+
+Replace angle-bracket placeholders with values. Search prints record URLs and MD5s.
+`--source` selects the one-based index printed by `anna links`; without it, download
+chooses the first non-fast HTTP source. No automatic source retries are performed.
+`--limit` caps records on the requested page, not the number of pages fetched.
+`--lang`, `--ext` and `--content` may be repeated.
+
+Downloads follow HTTP redirects and explicit file-download controls. Data is streamed
+into a temporary file in the destination directory and published without overwriting
+existing files. Record downloads always verify the record MD5; direct URL downloads
+can use `--md5`. MD5 identifies catalog files, while release archives use SHA-256.
+HTML/JSON/XML responses, empty downloads, length mismatches and MD5 failures are
+rejected. Temporary files are removed on errors and interruption. Filesystems must
+support hard links for atomic no-overwrite publication (for example, ext4/APFS/NTFS).
+There is no resume support.
+
+## Mirrors, Cookies and proxies
+
+```sh
 anna --base-url https://annas-archive.gl doctor
-export ANNA_BASE_URL=https://annas-archive.gl
 anna --cookies /path/to/cookies.txt search "Pride and Prejudice"
 anna --timeout 60 search "Pride and Prejudice"
 ```
 
-全局参数 `--base-url`、`--cookies`、`--user-agent`、`--timeout` 放在子命令前。
-对应环境变量为 `ANNA_BASE_URL`、`ANNA_COOKIES`、`ANNA_USER_AGENT`、`ANNA_TIMEOUT`。
-支持标准 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` 和 httpx 的 CA 环境变量。
+Global options go **before** the subcommand. Precedence is command-line option,
+environment variable, then built-in default.
 
-Cookie 文件必须是浏览器导出的 Netscape 格式，仅发送给匹配的域名和路径，不写入项目。
-浏览器验证可能绑定 IP、User-Agent 或浏览器指纹，导出 Cookie 不保证能通过；可使用
-`--user-agent` 指定原浏览器 User-Agent。工具不会自动将 Cookie 移植到其他镜像。
+| Option | Environment | Default |
+| --- | --- | --- |
+| `--base-url` | `ANNA_BASE_URL` | `https://annas-archive.gl` |
+| `--cookies` | `ANNA_COOKIES` | No Cookie file |
+| `--user-agent` | `ANNA_USER_AGENT` | Built-in browser-style User-Agent |
+| `--timeout` | `ANNA_TIMEOUT` | 30 seconds per network operation |
 
-默认镜像 `.gl` 可随站点变动而失效，请自行核实新镜像再设置 `--base-url`。
-2026-09-12 本机实测：`.gl`、`.gd`、`.pk` 返回 DDoS-Guard 403；`.org` TLS 连接失败；
-`.li` 为停放页，`.gs` 为跳转广告页。不能将 HTTP 200 本身视为服务可用。
-因此当前**未完成真实站点的搜索/详情/下载成功验收**；本地测试与公网文件下载验证见下方。
+Standard `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `SSL_CERT_FILE` and
+`SSL_CERT_DIR` are supported through httpx. SOCKS support is included.
+Netscape Cookie files are read with domain/path/expiry restrictions. Cookies may be
+bound to browser fingerprints, IP or User-Agent; exporting them does not guarantee
+access. Match the browser User-Agent when needed. Cookies are not transferred between
+mirrors or saved in the repository. TLS certificate validation remains enabled.
 
-## 脚本接口
+Mirror domains change. Verify a new origin before passing it to `--base-url`.
+An HTTP 200 parking or advertising page is not a functioning mirror. Unknown page
+layouts produce errors rather than silently returning no results. `doctor` inspects
+live mirror availability separately from deterministic CI tests.
 
-所有子命令支持 `--json`，全局位置也接受。搜索返回书籍数组，详情返回书籍对象，
-链接返回带 `index` 的数组，下载返回 `{path, bytes, md5}`，诊断返回 `{base_url, ok, results}`。
-正常输出写 stdout；操作失败退出 1，JSON 模式返回
-`{"error":{"type":"ChallengeError","message":"..."}}`。
-参数用法错误由 Click 输出到 stderr 并退出 2；Ctrl-C 退出 1。
-非 JSON 模式的错误输出到 stderr。
+## Scripting contract
 
-搜索适配公开源码中的列表布局与 `.js-scroll-hidden` 注释结果，强制请求列表模式；
-只返回可下载的 `/md5/` 记录，不将 ISBN/DOI 等纯元数据记录当成文件。
-详情适配标题区域与 `.js-download-link`；未知布局会报错，不静默返回空结果。
-这是 HTML 适配器，站点改版可能需要更新选择器，非 Anna’s Archive 官方项目。
+All commands accept `--json`; the global position is also supported. JSON data goes
+to stdout. Human-mode progress/errors go to stderr. JSON-mode operational errors go
+to stdout with exit status 1; Click usage errors remain on stderr with status 2.
+Successful empty searches return `[]` with status 0. Ctrl-C exits 1.
 
-## 开发验证
+| Command | JSON result |
+| --- | --- |
+| `search` | Array of book records |
+| `info` | Book record, including `links` |
+| `links` | Array of `{index, label, url, kind}` |
+| `download` | `{path, bytes, md5}` |
+| `doctor` | `{base_url, ok, results}` |
 
-```bash
-uv sync --group dev
-uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
-uv build
+```json
+{"error":{"code":"browser_verification_required","type":"ChallengeError","message":"Browser verification required..."}}
 ```
 
-测试覆盖源码布局形状的匿名化夹具、注释结果去重、筛选与分页请求、Cookie 域隔离、
-站点限流/验证页、JSON 错误输出、入口解析、二进制下载、校验失败清理、路径净化和不覆盖。
-测试通过 MockTransport，不依赖线上可用性；夹具不是本次联网抓取的成功结果。
+Use `error.code` in scripts. Codes include `browser_verification_required`,
+`unrecognized_page`, `network_error`, `filesystem_error`, `invalid_input`,
+`file_exists`, `integrity_error`, `rate_limited`, `http_error` and `operation_failed`.
+`type` is retained for compatibility/diagnostics; English messages are not stable APIs.
+Breaking CLI/JSON changes are called out in the changelog, including during 0.x releases.
 
-2026-09-12 验证结果：30 项测试通过，Ruff 与 wheel/sdist 构建通过；
-通过真实 HTTP 重定向从 Project Gutenberg 下载《Pride and Prejudice》无插图 EPUB，
-558,381 字节，MD5 `a6409dea67b04c4243504cdfeff33781`，EPUB mimetype 与 ZIP CRC 校验通过。
-较大插图版的下载中途断流，已验证错误退出且临时文件被清理。
-以上证明通用文件下载链路可用，不代表 Anna’s Archive 的浏览器验证已解决。
+## Development
 
-解析结构参考公开源码镜像：
+```sh
+uv sync --locked
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check src/anna
+uv run pytest -q
+uv build
+uv run twine check dist/*
+```
 
-- https://github.com/LilyLoops/annas-archive/blob/main/allthethings/templates/macros/aarecord_list.html
-- https://github.com/LilyLoops/annas-archive/blob/main/allthethings/page/templates/page/aarecord.html
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
+[release operations](docs/releasing.md) and [CHANGELOG.md](CHANGELOG.md).
+Documentation, comments, docstrings, interface text and new collaboration/release
+text are English. Book metadata and multilingual fixtures retain their original text.
+
+Parsing was independently implemented against the public HTML layout documented in
+[Anna's Archive source](https://github.com/LilyLoops/annas-archive/tree/main/allthethings).
+Fixtures are small synthetic examples, not scraped user data or copied source code.
+This project does not include ebooks, account credentials or a browser-challenge bypass.

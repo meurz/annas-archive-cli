@@ -10,3 +10,9 @@ cookies*
 *.har
 downloads/
 *.part
+build/
+*.spec
+release/
+
+.artifact-venv/
+requirements-audit.txt
