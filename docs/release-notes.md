@@ -9,5 +9,5 @@ First distributable preview of Anna's Archive CLI.
 Tested mirrors required browser verification. This CLI does not execute browser challenges.
 The binaries are not OS-signed or notarized. See README for platform baselines and install commands.
 
-Python packages can be run directly from this GitHub release using uvx. PyPI publication
-is performed separately after the Trusted Publisher has been configured.
+Python packages can be run directly from this GitHub release using uvx. The PyPI upload
+workflow publishes the same verified wheel and source distribution separately.

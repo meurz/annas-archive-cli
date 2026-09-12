@@ -19,11 +19,19 @@ Artifacts include standalone archives, wheel, sdist, installers, SHA256SUMS and 
 build attestations. macOS and Windows OS signing is not configured. Linux archives carry
 the minimum glibc baseline of their build host, not universal Linux compatibility.
 
-## PyPI Trusted Publishing
+## PyPI publishing
 
 The `Publish to PyPI` workflow is manually dispatched with an existing release tag.
 It downloads and verifies the provenance of the tested wheel/sdist, then publishes the
-same files through OIDC. No long-lived PyPI token is stored in GitHub.
+same files using the `PYPI_API_TOKEN` secret in the protected `pypi` environment.
+The token is never stored in the repository. The environment only permits deployment
+from `main`. GitHub build attestations are verified before upload; PyPI upload
+attestations are disabled when using token authentication.
+
+Set or rotate the environment secret with `gh secret set PYPI_API_TOKEN --env pypi`.
+Keep the credential out of shell arguments, commit history and workflow logs.
+
+### Optional migration to Trusted Publishing
 
 On PyPI, configure a pending publisher for a new project, or a trusted publisher for
 an existing project, with these exact values:
@@ -36,11 +44,13 @@ an existing project, with these exact values:
 | Workflow filename | `pypi.yml` |
 | Environment | `pypi` |
 
-This requires an authorized PyPI account with publishing rights. A GitHub login does
-not create a PyPI account or reserve the package name. Until this setup is complete,
-use the release wheel URL from README. Once configured, dispatch `pypi.yml` with the
-release tag and verify `uvx --from annas-archive-cli==<version> anna --version` in a clean
-cache after publication. Do not claim PyPI availability before this check passes.
+This requires an authorized PyPI account with publishing rights. After configuring
+the publisher, remove the workflow's `password` input, grant the publishing job
+`id-token: write`, enable PyPI attestations and remove the environment token secret.
+
+Dispatch `pypi.yml` with the existing release tag and verify
+`uvx --from annas-archive-cli==<version> anna --version` in a clean cache after
+publication. Do not claim PyPI availability before this check passes.
 
 ## Failures and retries
 
