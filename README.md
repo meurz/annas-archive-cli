@@ -5,27 +5,28 @@
 Search Anna's Archive, inspect book records and download files from your terminal.
 The command is `anna`. This is an independent, unofficial project.
 
-> **Preview:** parsing and packaged downloads are tested against local fixtures.
-> A real public-domain EPUB download has been verified, but successful end-to-end
-> access to Anna's Archive has not: tested mirrors required browser verification.
-> The CLI does not execute JavaScript challenges, CAPTCHAs or waiting queues.
+> **Preview:** real Anna's Archive search → record → free-source download has been
+> verified with public-domain EPUBs, including catalog MD5 and EPUB integrity checks.
+> No browser, account or additional dependencies are needed for the verified routes.
+> Site protection can change; this is not a universal CAPTCHA solver.
+> See [live verification](docs/live-verification.md) for evidence and limits.
 
 ## Run in one command
 
 With [uv](https://docs.astral.sh/uv/), run the pinned preview:
 
 ```sh
-uvx --from annas-archive-cli==0.2.0rc1 anna --help
+uvx --from annas-archive-cli==0.2.0rc2 anna --help
 ```
 
 No repository clone or manual virtual environment is needed. uv needs a compatible
 Python runtime and can download one when permitted. To install permanently, use
-`uv tool install annas-archive-cli==0.2.0rc1`.
+`uv tool install annas-archive-cli==0.2.0rc2`.
 
 The identical wheel is also available directly from GitHub Releases:
 
 ```sh
-uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/annas_archive_cli-0.2.0rc1-py3-none-any.whl anna --help
+uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc2/annas_archive_cli-0.2.0rc2-py3-none-any.whl anna --help
 ```
 
 ### Without Python
@@ -34,13 +35,13 @@ Standalone archives are available from [GitHub Releases](https://github.com/meur
 They bundle the runtime. Install the preview on Linux or macOS:
 
 ```sh
-curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/install.sh | ANNA_VERSION=v0.2.0rc1 sh
+curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc2/install.sh | ANNA_VERSION=v0.2.0rc2 sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:ANNA_VERSION='v0.2.0rc1'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc1/install.ps1).Content))
+$env:ANNA_VERSION='v0.2.0rc2'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc2/install.ps1).Content))
 ```
 
 Alternatively, download and inspect the installer before running it, or extract the
@@ -88,7 +89,9 @@ anna doctor --json
 
 Replace angle-bracket placeholders with values. Search prints record URLs and MD5s.
 `--source` selects the one-based index printed by `anna links`; without it, download
-chooses the first non-fast HTTP source. No automatic source retries are performed.
+chooses the first non-fast HTTP source. It does not switch sources automatically.
+Free-source countdowns are honored for up to 300 seconds; use `--max-wait 0` to fail
+immediately or `--max-wait 600` to allow longer waits. Waiting messages go to stderr.
 `--limit` caps records on the requested page, not the number of pages fetched.
 `--lang`, `--ext` and `--content` may be repeated.
 
@@ -152,7 +155,8 @@ Successful empty searches return `[]` with status 0. Ctrl-C exits 1.
 
 Use `error.code` in scripts. Codes include `browser_verification_required`,
 `unrecognized_page`, `network_error`, `filesystem_error`, `invalid_input`,
-`file_exists`, `integrity_error`, `rate_limited`, `http_error` and `operation_failed`.
+`file_exists`, `integrity_error`, `rate_limited`, `download_wait_required`,
+`http_error` and `operation_failed`.
 `type` is retained for compatibility/diagnostics; English messages are not stable APIs.
 Breaking CLI/JSON changes are called out in the changelog, including during 0.x releases.
 
@@ -175,5 +179,15 @@ text are English. Book metadata and multilingual fixtures retain their original 
 
 Parsing was independently implemented against the public HTML layout documented in
 [Anna's Archive source](https://github.com/LilyLoops/annas-archive/tree/main/allthethings).
-Fixtures are small synthetic examples, not scraped user data or copied source code.
-This project does not include ebooks, account credentials or a browser-challenge bypass.
+Fixtures include synthetic examples and reduced public HTML snapshots of Gutenberg
+book records. No ebooks, account credentials or browser runtime are included.
+
+Opt-in live acceptance (downloads a public-domain EPUB to a temporary directory):
+
+```sh
+uv run python scripts/live_smoke.py
+```
+
+This runs the actual CLI outside the checkout, verifies search, details, sources,
+downloaded bytes, catalog MD5 and EPUB CRC, and then removes the test download.
+It is separate from deterministic CI because mirrors and protection rules change.

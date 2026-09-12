@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0rc2
+
+Real public-domain downloads through Anna's Archive now pass end-to-end acceptance
+without a browser, account, exported Cookies or additional runtime dependencies.
+
+- Parse the current separate-link search cards and updated record layout; skip
+  hidden cover placeholders instead of returning empty titles.
+- Retry recognized challenges once using equivalent percent-encoded requests.
+  This depends on current upstream behavior and is not a general CAPTCHA solver.
+- Follow the current free-source download button and honor server countdowns,
+  with `--max-wait` (default: 300 seconds) and stderr-only waiting messages.
+- Add reduced public HTML regression fixtures and an opt-in live CLI smoke test
+  that verifies catalog MD5, downloaded byte count and EPUB integrity.
+
 ## 0.2.0rc1
 
 First distributable preview. Live end-to-end Anna's Archive acceptance remains pending

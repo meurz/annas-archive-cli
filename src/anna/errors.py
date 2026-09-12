@@ -30,3 +30,13 @@ class RateLimitError(AnnaError):
 
 class HTTPStatusError(AnnaError):
     code = "http_error"
+
+
+class DownloadWaitError(AnnaError):
+    code = "download_wait_required"
+
+    def __init__(self, seconds: int):
+        self.seconds = seconds
+        super().__init__(
+            f"Free download requires another {seconds} seconds; increase --max-wait or retry later."
+        )

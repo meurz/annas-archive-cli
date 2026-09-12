@@ -94,7 +94,7 @@ class Metadata(TypedDict):
 
 
 def metadata_fields(value: str) -> Metadata:
-    parts = [p.strip() for p in value.split(",")]
+    parts = [p.strip() for p in re.split(r"[,·]", value)]
     language = re.search(r"\[([a-z]{2,3}(?:[-_][\w]+)?)\]", value, re.I)
     extension = next(
         (
@@ -123,8 +123,29 @@ def parse_search(html: str, base_url: str) -> list[Book]:
         md5 = match[1].lower()
         if md5 in books:
             continue
+        if "js-vim-focus" in (anchor.get("class") or []) and not anchor.select_one("h3"):
+            # Current cards have separate cover, title, author and publisher links.
+            details = anchor.parent.parent if anchor.parent else None
+            card = details.parent if details else None
+            if not isinstance(details, Tag) or not isinstance(card, Tag) or not text(anchor):
+                continue
+            cover = card.select_one("img[src]")
+            books[md5] = Book(
+                md5=md5,
+                title=text(anchor),
+                url=urljoin(base_url, f"/md5/{md5}"),
+                author=icon_link(details, "mdi--user-edit"),
+                publisher=icon_link(details, "mdi--company"),
+                cover_url=urljoin(base_url, str(cover["src"])) if cover and cover["src"] else "",
+                **metadata_fields(summary_text(details.select_one(".text-gray-800"))),
+            )
+            continue
         title = anchor.select_one("h3") or anchor.select_one(".font-bold")
-        if title is None:
+        if (
+            title is None
+            or not text(title)
+            or anchor.select_one(".js-aarecord-list-fallback-cover")
+        ):
             continue  # Cover-only anchors and unrelated links are not results.
         meta = anchor.select_one(".text-gray-500")
         author = anchor.select_one(".italic")
@@ -159,6 +180,20 @@ def parse_search(html: str, base_url: str) -> list[Book]:
     return list(books.values())
 
 
+def icon_link(container: Tag, icon: str) -> str:
+    node = container.select_one(f'[class*="{icon}"]')
+    return text(node.find_parent("a")) if node else ""
+
+
+def summary_text(node: Tag | None) -> str:
+    if node is None:
+        return ""
+    clone = BeautifulSoup(str(node), "html.parser")
+    for control in clone.select("a, script, style"):
+        control.decompose()
+    return text(clone).rstrip(" ·")
+
+
 def extract_links(soup: BeautifulSoup, base_url: str) -> list[Link]:
     links = []
     seen = set()
@@ -180,6 +215,21 @@ def extract_links(soup: BeautifulSoup, base_url: str) -> list[Link]:
 
 def parse_info(html: str, base_url: str, md5: str) -> Book:
     soup = document(html)
+    title = soup.select_one("div.text-2xl.font-semibold")
+    if title is not None and isinstance(title.parent, Tag) and text(title):
+        container = title.parent
+        cover = container.select_one("img[src]")
+        return Book(
+            md5=md5,
+            title=text(title),
+            url=urljoin(base_url, f"/md5/{md5}"),
+            author=icon_link(container, "mdi--user-edit"),
+            publisher=icon_link(container, "mdi--company"),
+            cover_url=urljoin(base_url, str(cover["src"])) if cover and cover["src"] else "",
+            description=text(container.select_one(".js-md5-top-box-description")),
+            links=extract_links(soup, base_url),
+            **metadata_fields(summary_text(container.select_one(".text-gray-800"))),
+        )
     title = soup.select_one(".text-3xl")
     if title is None:
         raise ParseError(
