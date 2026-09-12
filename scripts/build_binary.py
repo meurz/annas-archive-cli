@@ -32,6 +32,8 @@ def main():
             "--clean",
             "--noconfirm",
             "--onefile",
+            "--python-option",
+            "X utf8",
             "--name",
             "anna",
             "--collect-data",
@@ -52,7 +54,13 @@ def main():
     binary = ROOT / "build/bin" / ("anna.exe" if system == "windows" else "anna")
     subprocess.run([str(binary), "--version"], check=True)
     subprocess.run(
-        [sys.executable, str(ROOT / "scripts/smoke_test.py"), "--executable", str(binary)],
+        [
+            sys.executable,
+            str(ROOT / "scripts/smoke_test.py"),
+            "--executable",
+            str(binary),
+            "--standalone",
+        ],
         check=True,
     )
     staging = ROOT / "build" / f"anna-v{__version__}-{args.target}"
