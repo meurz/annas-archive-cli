@@ -3,6 +3,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      build_only:
+        description: Build and test artifacts without publishing a release
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -41,12 +46,12 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: uv run --frozen python scripts/check_release.py "$env:RELEASE_TAG"
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && github.ref_type == 'tag'
       - name: Validate release tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: uv run --frozen python scripts/check_release.py "$RELEASE_TAG"
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && github.ref_type == 'tag'
       - run: uv run --frozen --group bundle python scripts/build_binary.py --target ${{ matrix.target }}
       - name: Test Windows installer
         if: runner.os == 'Windows'
@@ -65,6 +70,7 @@ jobs:
           retention-days: 30
   publish:
     needs: build
+    if: github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || !inputs.build_only)
     runs-on: ubuntu-24.04
     environment: github-release
     permissions:
