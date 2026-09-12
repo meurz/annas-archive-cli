@@ -224,9 +224,16 @@ def links(ctx, record, json_output):
     help="Destination directory when -o is not specified.",
 )
 @click.option("--md5", "expected_md5", help="Verify the MD5 of a direct URL download.")
+@click.option(
+    "--max-wait",
+    type=click.IntRange(min=0),
+    default=300,
+    show_default=True,
+    help="Maximum seconds for the free source countdown. Use 0 to fail immediately.",
+)
 @json_option
 @click.pass_context
-def download(ctx, target, source, output, directory, expected_md5, json_output):
+def download(ctx, target, source, output, directory, expected_md5, max_wait, json_output):
     """Download a record by MD5/URL, or a direct HTTP(S) file URL."""
     with prepare(ctx, json_output) as client:
         try:
@@ -267,6 +274,10 @@ def download(ctx, target, source, output, directory, expected_md5, json_output):
                 directory,
                 expected_md5,
                 progress=progress,
+                max_wait=max_wait,
+                wait_progress=lambda seconds: click.echo(
+                    f"Free source countdown: waiting {seconds} seconds...", err=True
+                ),
             )
         finally:
             progress.close()

@@ -6,6 +6,11 @@ on:
         description: Verified mirror origin
         required: true
         default: https://annas-archive.gl
+      mode:
+        description: Search only, or the complete public-domain download check
+        type: choice
+        options: [search, download]
+        default: search
 permissions:
   contents: read
 jobs:
@@ -18,6 +23,12 @@ jobs:
           version: '0.11.3'
       - run: uv sync --locked --no-dev --python 3.12
       - name: Inspect mirror without account credentials
+        if: inputs.mode != 'download'
         env:
           ANNA_BASE_URL: ${{ inputs.base_url }}
         run: uv run --frozen --no-dev anna doctor --json
+      - name: Verify the live public-domain download chain
+        if: inputs.mode == 'download'
+        env:
+          ANNA_BASE_URL: ${{ inputs.base_url }}
+        run: uv run --frozen --no-dev python scripts/live_smoke.py --base-url "$ANNA_BASE_URL"

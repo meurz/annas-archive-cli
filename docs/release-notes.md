@@ -1,13 +1,23 @@
-First distributable preview of Anna's Archive CLI.
+Browserless live downloads in Anna's Archive CLI 0.2.0rc2.
 
-- Search, inspect records, list sources, download files and diagnose mirror access.
-- English CLI and documentation, JSON error codes, filtering, Cookies and proxy support.
-- Prebuilt wheel and five native standalone archives with SHA-256 checksums and build attestations.
-- Each published artifact passes local HTTP fixture smoke tests on its target platform.
+- Real public-domain search → details → free-source download → MD5 and EPUB checks.
+- Fix empty search titles and missing details caused by the current website layout.
+- Retry recognized challenge pages with equivalent percent-encoded requests, using
+  ordinary HTTP and the same Cookie jar. No browser or new runtime dependencies.
+- Wait for the free-source countdown within `--max-wait` (300 seconds by default).
+- Wheel and five native standalone archives, checksums and build attestations;
+  each artifact passes local HTTP fixture tests on its target platform.
 
-**Known limitation:** successful live AA search/detail/download acceptance is still pending.
-Tested mirrors required browser verification. This CLI does not execute browser challenges.
-The binaries are not OS-signed or notarized. See README for platform baselines and install commands.
+Run immediately:
 
-Python packages can be run directly from this GitHub release using uvx. The PyPI upload
-workflow publishes the same verified wheel and source distribution separately.
+```sh
+uvx --from annas-archive-cli==0.2.0rc2 anna download 51d2b22ca12a8b470b51f543298b34c9 -o pride-and-prejudice.epub
+```
+
+**Limits:** the request fallback relies on current upstream protection behavior;
+it is not a universal CAPTCHA solver. Mirrors, source availability and countdowns
+can change. See `docs/live-verification.md` for the tested records and hashes.
+The binaries are not OS-signed or notarized.
+
+The successful tagged release automatically triggers publication of the same
+verified Python distributions to PyPI.

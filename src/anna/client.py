@@ -3,6 +3,7 @@ import http.cookiejar
 import os
 import re
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
@@ -11,6 +12,8 @@ import httpx
 
 from anna.errors import (
     AnnaError,
+    ChallengeError,
+    DownloadWaitError,
     FileExistsError,
     HTTPStatusError,
     IntegrityError,
@@ -80,6 +83,33 @@ def check_status(response: httpx.Response) -> None:
         )
 
 
+def download_link(html: str, base_url: str) -> str:
+    soup = document(html)
+    countdown = soup.select_one(".js-partner-countdown")
+    if countdown is not None:
+        value = text(countdown)
+        if not re.fullmatch(r"\d{1,6}", value):
+            raise AnnaError("Unrecognized download countdown; no file was saved.")
+        raise DownloadWaitError(int(value))
+    candidates = soup.select("a[download][href], a#download[href]")
+    if not candidates:
+        candidates = [
+            a
+            for a in soup.select("a[href]")
+            if text(a).lower().removeprefix("📚").strip()
+            in {"get", "download now", "download file", "立即下载"}
+        ]
+    for anchor in candidates:
+        target = urljoin(base_url, str(anchor["href"]))
+        if target != base_url:
+            return http_url(target)
+    raise AnnaError(
+        "Download returned a web page requiring verification, login or waiting. "
+        "Obtain the final file URL in your browser and run anna download URL; "
+        "no page was saved."
+    )
+
+
 class Client:
     def __init__(
         self,
@@ -125,7 +155,17 @@ class Client:
 
     def page(self, path: str, params: dict | None = None) -> httpx.Response:
         response = self.http.get(self.base_url + path, params=params)
-        check_status(response)
+        try:
+            check_status(response)
+            document(response.text)
+        except ChallengeError:
+            # The current public site accepts an equivalent percent-encoded check
+            # value. Retry once in this session; this is not a JS solver.
+            url = httpx.URL(self.base_url + path, params=params)
+            query = url.query + (b"&" if url.query else b"") + b"check=%31"
+            response = self.http.get(url.copy_with(query=query))
+            check_status(response)
+            document(response.text)
         return response
 
     def search(self, query: str, **filters) -> list[Book]:
@@ -147,6 +187,50 @@ class Client:
         directory: Path = Path("."),
         expected_md5: str | None = None,
         progress: Callable[[int], None] | None = None,
+        max_wait: int = 300,
+        wait_progress: Callable[[int], None] | None = None,
+    ) -> dict:
+        if max_wait < 0:
+            raise InvalidInputError("--max-wait cannot be negative.")
+        deadline = time.monotonic() + max_wait
+        parsed = httpx.URL(http_url(url))
+        base = httpx.URL(self.base_url)
+        same_mirror_slow = (parsed.scheme, parsed.host, parsed.port) == (
+            base.scheme,
+            base.host,
+            base.port,
+        ) and bool(re.fullmatch(r"/slow_download/[0-9a-f]{32}/\d+/\d+/?", parsed.path))
+        for _ in range(6):
+            try:
+                return self._download(url, output, directory, expected_md5, progress)
+            except ChallengeError:
+                if not same_mirror_slow or not parsed.raw_path.startswith(b"/slow_download/"):
+                    raise
+                # Keep retries on this mirror and preserve the server's signed query.
+                parsed = parsed.copy_with(
+                    raw_path=parsed.raw_path.replace(b"/slow_download/", b"/slow%5Fdownload/", 1)
+                )
+                url = str(parsed)
+            except DownloadWaitError as exc:
+                delay = exc.seconds + 1
+                if not same_mirror_slow or delay > deadline - time.monotonic():
+                    raise
+                if wait_progress:
+                    wait_progress(delay)
+                remaining = delay
+                while remaining > 0:
+                    interval = min(30, remaining)
+                    time.sleep(interval)
+                    remaining -= interval
+        raise AnnaError("Download did not become available after bounded retries; try later.")
+
+    def _download(
+        self,
+        url: str,
+        output: Path | None,
+        directory: Path,
+        expected_md5: str | None,
+        progress: Callable[[int], None] | None,
     ) -> dict:
         if expected_md5:
             expected_md5 = record_id(expected_md5)
@@ -181,32 +265,7 @@ class Client:
                             raise AnnaError(
                                 "Download returned an oversized HTML page; no file was saved."
                             )
-                    soup = document(body.decode("utf-8", errors="replace"))
-                    # Only follow explicit file download controls, never arbitrary links/JS.
-                    candidates = soup.select("a[download][href], a#download[href]")
-                    if not candidates:
-                        candidates = [
-                            a
-                            for a in soup.select("a[href]")
-                            if text(a).lower()
-                            in {"get", "download now", "download file", "立即下载"}
-                        ]
-                    target = next(
-                        (
-                            urljoin(str(response.url), str(a["href"]))
-                            for a in candidates
-                            if urljoin(str(response.url), str(a["href"])) != str(response.url)
-                        ),
-                        None,
-                    )
-                    if not target:
-                        raise AnnaError(
-                            "Download returned a web page requiring verification, "
-                            "login or waiting. "
-                            "Obtain the final file URL in your browser and run anna download URL; "
-                            "no page was saved."
-                        )
-                    url = target
+                    url = download_link(body.decode("utf-8", errors="replace"), str(response.url))
                     continue
                 if ("json" in content_type or prefix.startswith((b'{"', b"{\n"))) or (
                     "xml" in content_type or prefix.startswith(b"<?xml")
