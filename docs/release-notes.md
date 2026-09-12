@@ -1,23 +1,19 @@
-Browserless live downloads in Anna's Archive CLI 0.2.0rc2.
+Clearer CLI next steps in Anna's Archive CLI 0.2.0rc3.
 
-- Real public-domain search → details → free-source download → MD5 and EPUB checks.
-- Fix empty search titles and missing details caused by the current website layout.
-- Retry recognized challenge pages with equivalent percent-encoded requests, using
-  ordinary HTTP and the same Cookie jar. No browser or new runtime dependencies.
-- Wait for the free-source countdown within `--max-wait` (300 seconds by default).
-- Wheel and five native standalone archives, checksums and build attestations;
-  each artifact passes local HTTP fixture tests on its target platform.
-
-Run immediately:
+Search results now show copyable download, details and source commands using a real
+record MD5. The hints explain how to select another result and choose a download
+folder. Record details and source listings also show the next command, including
+the correct `--source` index. Explicit mirror, Cookie file, User-Agent and timeout
+options carry over into the examples. JSON output stays unchanged.
 
 ```sh
-uvx --from annas-archive-cli==0.2.0rc2 anna download 51d2b22ca12a8b470b51f543298b34c9 -o pride-and-prejudice.epub
+uvx --from annas-archive-cli==0.2.0rc3 anna search '"Pride and Prejudice" "Gutenberg"' --lang en --ext epub --sort smallest --limit 3
 ```
 
-**Limits:** the request fallback relies on current upstream protection behavior;
-it is not a universal CAPTCHA solver. Mirrors, source availability and countdowns
-can change. See `docs/live-verification.md` for the tested records and hashes.
-The binaries are not OS-signed or notarized.
+No additional dependencies or browser runtime. Includes the browserless download
+and bounded countdown support from rc2. Upstream protection and source availability
+can still change; see `docs/live-verification.md` for the tested routes and limits.
 
-The successful tagged release automatically triggers publication of the same
-verified Python distributions to PyPI.
+Wheel, source distribution and five native standalone archives are available with
+SHA-256 checksums and GitHub build attestations. Each artifact passes its platform's
+packaging checks. The binaries are not OS-signed or notarized.

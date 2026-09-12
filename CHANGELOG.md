@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0rc3
+
+- Show copyable download, details and source commands after search results, using
+  the actual record MD5 and retaining explicit connection options.
+- Explain record IDs versus list numbers, download destinations and how to recover
+  from an empty search.
+- Guide record details and source listings toward the next download command;
+  source examples prefer non-fast HTTP sources and show the correct source index.
+- Keep JSON output unchanged and add no dependencies.
+
 ## 0.2.0rc2
 
 Real public-domain downloads through Anna's Archive now pass end-to-end acceptance

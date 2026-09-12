@@ -1,4 +1,5 @@
 import json
+import shlex
 import sys
 import time
 from dataclasses import asdict
@@ -98,6 +99,25 @@ def emit(value):
     click.echo(json.dumps(value, ensure_ascii=False, indent=2))
 
 
+def command_hint(ctx, *arguments):
+    """Render a copyable command, retaining explicitly supplied connection options."""
+    root = ctx.find_root()
+    words = ["anna"]
+    for name in ("base_url", "cookies", "user_agent", "timeout"):
+        if root.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE:
+            words.extend(["--" + name.replace("_", "-"), str(root.params[name])])
+    words.extend(str(argument) for argument in arguments)
+    if sys.platform == "win32":
+        # The documented Windows shell is PowerShell; POSIX escapes differ.
+        return " ".join(
+            word
+            if word and all(c.isalnum() or c in "-_/.:=" for c in word)
+            else "'" + word.replace("'", "''") + "'"
+            for word in words
+        )
+    return shlex.join(words)
+
+
 class DownloadProgress:
     def __init__(self, enabled: bool):
         self.enabled = enabled
@@ -158,11 +178,18 @@ def search(ctx, query, lang, ext, content, sort, page, limit, json_output):
         emit([asdict(book) for book in books])
     elif not books:
         click.echo("No matching books found.")
+        click.echo("Try fewer keywords or remove language, format or content filters.")
     else:
         for i, book in enumerate(books, 1):
             click.echo(f"{i}. {book.title}")
             click.echo(f"   {book.author or 'Unknown author'} | {book.metadata}")
             click.echo(f"   {book.url}")
+        click.echo("\nNext steps for result 1:")
+        click.echo(f"  Download: {command_hint(ctx, 'download', books[0].md5)}")
+        click.echo(f"  Details:  {command_hint(ctx, 'info', books[0].md5)}")
+        click.echo(f"  Sources:  {command_hint(ctx, 'links', books[0].md5)}")
+        click.echo("For another result, use its URL or MD5, not its list number.")
+        click.echo("Files are saved in the current directory. Add -d downloads to choose a folder.")
 
 
 @main.command()
@@ -187,7 +214,15 @@ def info(ctx, record, json_output):
         ]:
             if value:
                 click.echo(f"{label}: {value}")
-        click.echo(f"Download sources: {len(book.links)} (anna links {book.md5})")
+        click.echo(f"Download sources: {len(book.links)}")
+        if book.links:
+            click.echo()
+            if any(
+                link.kind != "fast" and link.url.startswith(("http://", "https://"))
+                for link in book.links
+            ):
+                click.echo(f"Download: {command_hint(ctx, 'download', book.md5)}")
+            click.echo(f"Choose a source: {command_hint(ctx, 'links', book.md5)}")
 
 
 @main.command()
@@ -205,6 +240,30 @@ def links(ctx, record, json_output):
             click.echo(f"{i}. [{link.kind}] {link.label}\n   {link.url}")
         if not book.links:
             click.echo("No download sources are available for this record.")
+        else:
+            sources = [
+                (i, link)
+                for i, link in enumerate(book.links, 1)
+                if link.url.startswith(("http://", "https://"))
+            ]
+            selected = next((item for item in sources if item[1].kind != "fast"), None)
+            if selected is None and sources:
+                selected = sources[0]
+            if selected:
+                index, _ = selected
+                click.echo(f"\nDownload using source {index}:")
+                click.echo(f"  {command_hint(ctx, 'download', book.md5, '--source', index)}")
+                click.echo(
+                    "Change --source to another number from this list to choose that source."
+                )
+                click.echo(
+                    "Free sources may count down before downloading; "
+                    "--max-wait defaults to 300 seconds."
+                )
+            else:
+                click.echo(
+                    "Open these sources with a compatible app; anna download needs an HTTP(S) URL."
+                )
 
 
 @main.command()
