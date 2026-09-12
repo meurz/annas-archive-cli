@@ -1,0 +1,58 @@
+# Live download verification
+
+On 2026-09-12, the actual CLI completed search, record inspection, source listing,
+free partner download, catalog MD5 comparison and EPUB ZIP/CRC validation. These
+requests used ordinary httpx, without accounts, browser Cookies, proxies or new
+runtime dependencies. Each command ran in a fresh process outside the checkout.
+
+| Mirror | Public-domain edition | Bytes | Catalog MD5 |
+| --- | --- | ---: | --- |
+| `annas-archive.gl` | Pride and Prejudice, Project Gutenberg, 1998 | 277900 | `51d2b22ca12a8b470b51f543298b34c9` |
+| `annas-archive.gd` | Pride and Prejudice, Project Gutenberg, 1998 | 277900 | `51d2b22ca12a8b470b51f543298b34c9` |
+| `annas-archive.gl` | Frankenstein, Project Gutenberg, 1993 | 174355 | `0fc6a1a51ea11b894d78117a553bb1f5` |
+
+The two copies of Pride and Prejudice have SHA-256
+`a17d6fff2ce6072a1f95ec38c58cb2c9c0e244b88a01e6487152ce2387ce159f`.
+The source was the free Slow Partner Server #1 listed on the real record page;
+this was not a substituted Gutenberg download URL or a local HTTP fixture.
+Frankenstein has SHA-256
+`4d363734f81817fa43a223a9f6dfcb1382072a07a78ff1350220d65cdc70271f`.
+
+## Reproduce
+
+```sh
+uvx --from annas-archive-cli==0.2.0rc2 anna search '"Pride and Prejudice" "Gutenberg"' --lang en --ext epub --sort smallest --limit 3
+uvx --from annas-archive-cli==0.2.0rc2 anna info 51d2b22ca12a8b470b51f543298b34c9
+uvx --from annas-archive-cli==0.2.0rc2 anna links 51d2b22ca12a8b470b51f543298b34c9
+uvx --from annas-archive-cli==0.2.0rc2 anna download 51d2b22ca12a8b470b51f543298b34c9 -o pride-and-prejudice.epub
+```
+
+From a checkout, `uv run python scripts/live_smoke.py` performs the complete check,
+prints a JSON report and removes the temporary download. Use `--base-url` to test
+another verified mirror. Live tests remain opt-in because they depend on external
+services; deterministic CI uses local fixtures.
+The manual **Live diagnostics** GitHub workflow also provides a `download` mode
+for the same check from a fresh runner.
+
+## Behavior and limits
+
+The current site sends anonymous requests through a verification redirect. After
+a recognized challenge response, the CLI retries once with an equivalent
+percent-encoded `check=1` value. For a challenged free-source route on the configured
+mirror, it retries the underscore in `/slow_download/` as `%5F`. This works because
+the current upstream routing and protection handle these equivalent spellings
+differently. It can stop working when the site changes; it is not a supported API
+or a general CAPTCHA solver. Persistent challenges still return
+`browser_verification_required`.
+
+Free sources may return a countdown instead of a link. The CLI waits for the
+displayed interval and retries, with a total wait budget of 300 seconds and bounded
+attempts. Use `--max-wait 0` to disable waiting, or increase it explicitly. Countdown
+messages use stderr; JSON stdout remains machine-readable. An exhausted wait
+budget returns `download_wait_required`. Login forms, unknown pages and files
+that fail MD5 checks are never reported as successful downloads.
+
+The `annas-archive.pk` mirror returned valid search and record pages during these
+checks, but complete runs encountered connection errors. It is not counted as a
+successful end-to-end mirror. Availability of other records, external sources,
+long queues and other network exits is not established by these small-book tests.

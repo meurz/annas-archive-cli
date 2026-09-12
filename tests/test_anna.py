@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from anna import cli
 from anna.client import Client, safe_filename
-from anna.errors import AnnaError, ChallengeError, ParseError
+from anna.errors import AnnaError, ChallengeError, DownloadWaitError, ParseError
 from anna.parsing import parse_info, parse_search, record_id
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -43,6 +43,156 @@ def test_info_links_and_search_icons():
     assert [link.kind for link in book.links] == ["fast", "slow", "external"]
     assert book.links[1].url.startswith(BASE + "/slow_download/")
     assert book.description == "Description A novel."
+
+
+def test_current_search_cards_skip_cover_placeholders():
+    books = parse_search(fixture("search-current"), BASE)
+    assert len(books) == 1
+    book = books[0]
+    assert book.md5 == "51d2b22ca12a8b470b51f543298b34c9"
+    assert book.title == "Pride and Prejudice"
+    assert book.author == "Austen, Jane"
+    assert book.publisher == "Project Gutenberg, 1998"
+    assert (book.language, book.format, book.size) == ("en", "epub", "0.3MB")
+    assert "Save" not in book.metadata
+    assert book.cover_url == ""
+
+
+def test_current_record_metadata_and_sources():
+    md5 = "51d2b22ca12a8b470b51f543298b34c9"
+    book = parse_info(fixture("info-current"), BASE, md5)
+    assert book.title == "Pride and Prejudice"
+    assert book.author == "Austen, Jane"
+    assert book.publisher == "Project Gutenberg, 1998"
+    assert (book.language, book.format, book.size) == ("en", "epub", "0.3MB")
+    assert book.url == BASE + "/md5/" + md5
+    assert [link.kind for link in book.links[:2]] == ["fast", "slow"]
+
+
+def test_challenge_retry_preserves_query_and_session():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.url.params["q"] == "中文 & Austen"
+        assert request.url.params.get_list("ext") == ["epub", "pdf"]
+        if len(requests) == 1:
+            return httpx.Response(
+                403, text=CHALLENGE, headers={"set-cookie": "session=test; Path=/"}
+            )
+        assert request.headers["cookie"] == "session=test"
+        assert request.url.query.endswith(b"check=%31")
+        return httpx.Response(200, text=fixture("search-current"))
+
+    with client(handler) as api:
+        assert api.search("中文 & Austen", ext=("epub", "pdf"))[0].title == "Pride and Prejudice"
+    assert len(requests) == 2
+
+
+def test_challenge_retry_is_bounded():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=CHALLENGE)
+
+    with client(handler) as api, pytest.raises(ChallengeError):
+        api.search("Austen")
+    assert len(requests) == 2
+
+
+def test_current_slow_source_to_verified_file(tmp_path):
+    md5 = hashlib.md5(BOOK).hexdigest()
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path.startswith("/md5/"):
+            return httpx.Response(200, text=fixture("info-current"))
+        if request.url.raw_path.startswith(b"/slow_download/"):
+            return httpx.Response(403, text=CHALLENGE)
+        if request.url.raw_path.startswith(b"/slow%5Fdownload/"):
+            return httpx.Response(
+                200,
+                text='<a href="/file">📚 Download now</a>',
+                headers={"content-type": "text/html"},
+            )
+        assert request.url.path == "/file"
+        return httpx.Response(200, content=BOOK)
+
+    with client(handler) as api:
+        book = api.info("51d2b22ca12a8b470b51f543298b34c9")
+        result = api.download(book.links[1].url, directory=tmp_path, expected_md5=md5)
+    assert Path(result["path"]).read_bytes() == BOOK
+    assert result["md5"] == md5
+    assert len(requests) == 4
+
+
+def test_free_source_countdown_then_download(monkeypatch, tmp_path):
+    now = [0.0]
+    waits = []
+    requests = []
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    monkeypatch.setattr("anna.client.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("anna.client.time.sleep", sleep)
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(
+                200,
+                text='<span class="js-partner-countdown">2</span>',
+                headers={"content-type": "text/html"},
+            )
+        return httpx.Response(200, content=BOOK)
+
+    with client(handler) as api:
+        result = api.download(
+            BASE + "/slow_download/" + MD5 + "/0/0",
+            directory=tmp_path,
+            expected_md5=hashlib.md5(BOOK).hexdigest(),
+            max_wait=5,
+            wait_progress=waits.append,
+        )
+    assert waits == [3]
+    assert now[0] == 3
+    assert len(requests) == 2
+    assert Path(result["path"]).read_bytes() == BOOK
+
+
+@pytest.mark.parametrize("max_wait", [0, 2])
+def test_free_source_countdown_respects_budget(max_wait, tmp_path, monkeypatch):
+    def sleep(_):
+        pytest.fail("An over-budget countdown must not sleep.")
+
+    monkeypatch.setattr("anna.client.time.sleep", sleep)
+    with (
+        client(
+            lambda _: httpx.Response(
+                200,
+                text='<span class="js-partner-countdown">10</span>',
+                headers={"content-type": "text/html"},
+            )
+        ) as api,
+        pytest.raises(DownloadWaitError, match="10 seconds"),
+    ):
+        api.download(BASE + "/slow_download/" + MD5 + "/0/0", directory=tmp_path, max_wait=max_wait)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_download_challenge_retry_stays_on_configured_mirror(tmp_path):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(403, text=CHALLENGE)
+
+    with client(handler) as api, pytest.raises(ChallengeError):
+        api.download("https://external.example/slow_download/" + MD5 + "/0/0", directory=tmp_path)
+    assert len(requests) == 1
 
 
 @pytest.mark.parametrize(
@@ -243,6 +393,39 @@ def test_cli_record_download_selects_source_and_verifies(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["md5"] == digest
     assert output.read_bytes() == BOOK
+
+
+def test_cli_countdown_progress_keeps_stdout_json(tmp_path, monkeypatch):
+    requests = []
+    digest = hashlib.md5(BOOK).hexdigest()
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(
+                200,
+                text='<span class="js-partner-countdown">1</span>',
+                headers={"content-type": "text/html"},
+            )
+        return httpx.Response(200, content=BOOK)
+
+    monkeypatch.setattr(cli, "Client", lambda **kw: client(handler))
+    monkeypatch.setattr("anna.client.time.sleep", lambda _: None)
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "download",
+            BASE + "/slow_download/" + MD5 + "/0/0",
+            "--md5",
+            digest,
+            "-o",
+            str(tmp_path / "book.pdf"),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["md5"] == digest
+    assert "waiting 2 seconds" in result.stderr
 
 
 @pytest.mark.parametrize(
