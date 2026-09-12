@@ -54,6 +54,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True)
+    parser.add_argument("--standalone", action="store_true")
     args = parser.parse_args()
     executable = str(Path(args.executable).resolve())
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -62,6 +63,9 @@ def main():
     env = {k: v for k, v in os.environ.items() if not k.startswith("ANNA_")}
     env.pop("PYTHONPATH", None)
     env.update(PYTHONUTF8="1", NO_PROXY="127.0.0.1,localhost")
+    if args.standalone:
+        env.pop("PYTHONUTF8", None)
+        env.pop("PYTHONIOENCODING", None)
     try:
         with tempfile.TemporaryDirectory() as directory:
 
