@@ -16,17 +16,17 @@ The command is `anna`. This is an independent, unofficial project.
 With [uv](https://docs.astral.sh/uv/), run the pinned preview:
 
 ```sh
-uvx --from annas-archive-cli==0.2.0rc2 anna --help
+uvx --from annas-archive-cli==0.2.0rc3 anna --help
 ```
 
 No repository clone or manual virtual environment is needed. uv needs a compatible
 Python runtime and can download one when permitted. To install permanently, use
-`uv tool install annas-archive-cli==0.2.0rc2`.
+`uv tool install annas-archive-cli==0.2.0rc3`.
 
 The identical wheel is also available directly from GitHub Releases:
 
 ```sh
-uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc2/annas_archive_cli-0.2.0rc2-py3-none-any.whl anna --help
+uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc3/annas_archive_cli-0.2.0rc3-py3-none-any.whl anna --help
 ```
 
 ### Without Python
@@ -35,13 +35,13 @@ Standalone archives are available from [GitHub Releases](https://github.com/meur
 They bundle the runtime. Install the preview on Linux or macOS:
 
 ```sh
-curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc2/install.sh | ANNA_VERSION=v0.2.0rc2 sh
+curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc3/install.sh | ANNA_VERSION=v0.2.0rc3 sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:ANNA_VERSION='v0.2.0rc2'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc2/install.ps1).Content))
+$env:ANNA_VERSION='v0.2.0rc3'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc3/install.ps1).Content))
 ```
 
 Alternatively, download and inspect the installer before running it, or extract the
@@ -87,7 +87,11 @@ anna download <file-URL> -d downloads --md5 <expected-MD5>
 anna doctor --json
 ```
 
-Replace angle-bracket placeholders with values. Search prints record URLs and MD5s.
+Replace angle-bracket placeholders with values. Search prints record URLs and
+copyable next-step commands using the first result's MD5. Use another result's URL
+or MD5 to select it; list numbers are not record IDs. Details and source listings
+also show the next download command, and explicit connection options are retained.
+These hints appear only in human-readable output; `--json` remains pure data.
 `--source` selects the one-based index printed by `anna links`; without it, download
 chooses the first non-fast HTTP source. It does not switch sources automatically.
 Free-source countdowns are honored for up to 300 seconds; use `--max-wait 0` to fail
