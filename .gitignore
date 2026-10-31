@@ -5,7 +5,6 @@ __pycache__/
 .ruff_cache/
 dist/
 *.egg-info/
-.env*
 cookies*
 *.har
 downloads/
@@ -16,3 +15,5 @@ release/
 
 .artifact-venv/
 requirements-audit.txt
+config.bat
+node_modules
