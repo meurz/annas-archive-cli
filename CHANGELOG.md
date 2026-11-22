@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0rc5
+
+- Publish from the current main history so downstream packagers can resolve a
+  version tag from main. Earlier release tags retain their original commits
+  for build provenance.
+
 ## 0.2.0rc4
 
 - Update free-source countdowns every second in interactive terminals, showing

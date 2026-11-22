@@ -16,17 +16,17 @@ The command is `anna`. This is an independent, unofficial project.
 With [uv](https://docs.astral.sh/uv/), run the pinned preview:
 
 ```sh
-uvx --from annas-archive-cli==0.2.0rc4 anna --help
+uvx --from annas-archive-cli==0.2.0rc5 anna --help
 ```
 
 No repository clone or manual virtual environment is needed. uv needs a compatible
 Python runtime and can download one when permitted. To install permanently, use
-`uv tool install annas-archive-cli==0.2.0rc4`.
+`uv tool install annas-archive-cli==0.2.0rc5`.
 
 The identical wheel is also available directly from GitHub Releases:
 
 ```sh
-uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc4/annas_archive_cli-0.2.0rc4-py3-none-any.whl anna --help
+uvx --from https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc5/annas_archive_cli-0.2.0rc5-py3-none-any.whl anna --help
 ```
 
 ### Without Python
@@ -35,13 +35,13 @@ Standalone archives are available from [GitHub Releases](https://github.com/meur
 They bundle the runtime. Install the preview on Linux or macOS:
 
 ```sh
-curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc4/install.sh | ANNA_VERSION=v0.2.0rc4 sh
+curl -fsSL https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc5/install.sh | ANNA_VERSION=v0.2.0rc5 sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:ANNA_VERSION='v0.2.0rc4'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc4/install.ps1).Content))
+$env:ANNA_VERSION='v0.2.0rc5'; & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://github.com/meurz/annas-archive-cli/releases/download/v0.2.0rc5/install.ps1).Content))
 ```
 
 Alternatively, download and inspect the installer before running it, or extract the
