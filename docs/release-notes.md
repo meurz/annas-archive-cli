@@ -2,6 +2,8 @@ Anna's Archive CLI 0.2.0rc5 is tagged on the current main branch, so
 `git describe --tags` can resolve the version from main. Tags for rc1 through
 rc4 retain the original commits used to build those releases.
 
+The release builds use updated certifi and soupsieve dependencies.
+
 Install this preview from PyPI:
 
 ```sh

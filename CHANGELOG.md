@@ -5,6 +5,7 @@
 - Publish from the current main history so downstream packagers can resolve a
   version tag from main. Earlier release tags retain their original commits
   for build provenance.
+- Refresh the locked versions of certifi and soupsieve for release builds.
 
 ## 0.2.0rc4
 
